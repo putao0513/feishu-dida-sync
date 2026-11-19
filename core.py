@@ -109,6 +109,61 @@ def _write(path, obj):
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+# ── 飞书 Base HTTP API（替代 lark-cli，适用于 GitHub Actions） ──
+
+_feishu_token_cache = {"token": "", "expires": 0.0}
+
+
+def _feishu_token():
+    import os
+    now = time.time()
+    if _feishu_token_cache["token"] and _feishu_token_cache["expires"] > now + 60:
+        return _feishu_token_cache["token"]
+    app_id = os.getenv("FEISHU_APP_ID", "")
+    app_secret = os.getenv("FEISHU_APP_SECRET", "")
+    if not app_id or not app_secret:
+        raise RuntimeError("FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量未设置")
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        data=json.dumps({"app_id": app_id, "app_secret": app_secret}).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        resp = json.loads(r.read().decode("utf-8"))
+    if resp.get("code") != 0:
+        raise RuntimeError("飞书认证失败: %s" % resp.get("msg", resp))
+    _feishu_token_cache["token"] = resp["tenant_access_token"]
+    _feishu_token_cache["expires"] = now + resp.get("expire", 7200)
+    return _feishu_token_cache["token"]
+
+
+def _feishu_api(method, path, body=None):
+    token = _feishu_token()
+    url = "https://open.feishu.cn/open-apis" + path
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json; charset=utf-8",
+    })
+    with urllib.request.urlopen(req, timeout=60) as r:
+        resp = json.loads(r.read().decode("utf-8"))
+    if resp.get("code") != 0:
+        raise RuntimeError("飞书 API %s: %s" % (resp.get("code"), resp.get("msg", "")))
+    return resp.get("data", {})
+
+
+def _convert_filter(f):
+    op_map = {"intersects": "is", "disjoint": "isNot"}
+    return {
+        "conjunction": f.get("logic", "and"),
+        "conditions": [
+            {"field_name": c[0], "operator": op_map.get(c[1], c[1]), "value": c[2]}
+            for c in f.get("conditions", [])
+        ],
+    }
+
+
 def lark(args, payload=None):
     c = cfg()
     exe = shutil.which("lark-cli")
@@ -138,16 +193,22 @@ def lark(args, payload=None):
 
 def feishu_list():
     c = cfg()
-    out = STATE / (".records-%d.ndjson" % int(time.time() * 1000))
-    f = json.dumps(c["sync"]["filter"], ensure_ascii=False, separators=(",", ":"))
-    args = ["+record-list", "--base-token", c["base_token"], "--table-id", c["table_id"],
-            "--filter-json", f, "--format", "ndjson", "--output", str(out)]
-    try:
-        lark(args)
-        return [json.loads(x) for x in out.read_text(encoding="utf-8").splitlines() if x.strip()]
-    finally:
-        out.unlink(missing_ok=True)
-        out.with_suffix(".manifest.json").unlink(missing_ok=True)
+    app_token, table_id = c["base_token"], c["table_id"]
+    flt = _convert_filter(c["sync"]["filter"])
+    records, page_token = [], ""
+    while True:
+        path = "/bitable/v1/apps/%s/tables/%s/records/search?page_size=500" % (app_token, table_id)
+        if page_token:
+            path += "&page_token=" + page_token
+        data = _feishu_api("POST", path, {"filter": flt, "automatic_fields": False})
+        for item in data.get("items", []):
+            row = {"record_id": item["record_id"]}
+            row.update(item.get("fields", {}))
+            records.append(row)
+        if not data.get("has_more") or not data.get("page_token"):
+            break
+        page_token = data["page_token"]
+    return records
 
 
 def build_fields(p):
@@ -174,11 +235,11 @@ def feishu_create(fields, dry=None):
     dry_run = c["dry_run"] if dry is None else dry
     if dry_run:
         return {"dry_run": True, "record_id": None, "fields": fields}
-    data = lark(["+record-batch-create", "--base-token", c["base_token"],
-                 "--table-id", c["table_id"], "--json", "@PAYLOAD"],
-                {"create_records": [fields]})
-    ids = data.get("record_id_list") or []
-    return {"dry_run": False, "record_id": ids[0] if ids else None, "raw": data}
+    data = _feishu_api("POST",
+        "/bitable/v1/apps/%s/tables/%s/records/batch_create" % (c["base_token"], c["table_id"]),
+        {"records": [{"fields": fields}]})
+    recs = data.get("records", [])
+    return {"dry_run": False, "record_id": recs[0]["record_id"] if recs else None, "raw": data}
 
 
 def capture(p):
