@@ -1,0 +1,21 @@
+Redirect URI 必须与开发者中心完全一致：http://127.0.0.1:38000/callback
+
+授权 URL（若浏览器没自动打开，手动复制）：
+https://dida365.com/oauth/authorize?client_id=RNLyE3mtN2r2yGFjt2&scope=tasks%3Aread+tasks%3Awrite&state=IoCybNJ4xfDXb1Un1ILWVQ&redirect_uri=http%3A%2F%2F127.0.0.1%3A38000%2Fcallback&response_type=code
+
+等待授权回调（最长 3600 秒）...
+access_token 已写入 config.json（36 字符，不显示明文）
+refresh_token：无
+dry_run 与 dida.enabled 未改动，真实写入仍需你确认
+
+可用清单：
+   1. 💐Happy Wife、Happy Life             68d10f0fe4b05f5812a06afb
+   2. 🌯about婷婷姐                          68d1e89b249609d645b7b517
+   3. 🚤悬而未决                              68d1feace4b09e8f027caca9
+   4. 🚀special time                      69609cb6e4b0c9d5f88e70fc
+   5. 🛵罗莱 work归档                         69d5ac7eeb406f57a55e865b
+   6. 🤖0720-OA                           6a95245de9af1e00000006a9
+   7. 🍓Miki的工作                           6a8e8e4ae4b0e45b3daeef1b
+   8. 🍵CHAGEE                            6af12a96224045a19f4a499c
+
+非交互环境：把目标 id 手动填入 config.json 的 sync.project_id
