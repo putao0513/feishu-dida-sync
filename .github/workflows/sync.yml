@@ -5,6 +5,9 @@ on:
     - cron: '0 */2 * * *'  # UTC时区，每2小时执行一次
   workflow_dispatch:        # 支持手动触发
 
+permissions:
+  contents: write            # 允许自动提交 mapping.json
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -18,7 +21,10 @@ jobs:
 
       - name: Run sync
         env:
-          # ── 只需 5 个 Secrets，其余配置已写死在 core.py ──
+          # ── 飞书 API 凭据 ──
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          # ── 滴答凭据（5 个） ──
           DIDA_CLIENT_ID: ${{ secrets.DIDA_CLIENT_ID }}
           DIDA_CLIENT_SECRET: ${{ secrets.DIDA_CLIENT_SECRET }}
           DIDA_TOKEN: ${{ secrets.DIDA_TOKEN }}
