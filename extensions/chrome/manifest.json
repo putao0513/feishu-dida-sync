@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Quick capture to workbench",
+  "version": "0.1.0",
+  "description": "Right-click selected text or a link to capture it into the Feishu Base workbench.",
+  "permissions": ["contextMenus", "notifications"],
+  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "icons": { "16": "icon.png" },
+  "background": { "service_worker": "background.js" }
+}
