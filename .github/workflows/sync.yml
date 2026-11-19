@@ -1,0 +1,48 @@
+name: Sync Feishu to Dida
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # UTC时区，每2小时执行一次（整点第0分钟）
+  workflow_dispatch:        # 支持手动从GitHub UI触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Run sync
+        env:
+          # 飞书配置
+          FEISHU_BASE_TOKEN: ${{ secrets.FEISHU_BASE_TOKEN }}
+          FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
+          FEISHU_FIELD_MAPPING: ${{ secrets.FEISHU_FIELD_MAPPING }}
+          FEISHU_FILTER_CONDITIONS: ${{ secrets.FEISHU_FILTER_CONDITIONS }}
+          
+          # 滴答配置
+          DIDA_TOKEN: ${{ secrets.DIDA_TOKEN }}
+          DIDA_REFRESH_TOKEN: ${{ secrets.DIDA_REFRESH_TOKEN }}
+          DIDA_CLIENT_ID: ${{ secrets.DIDA_CLIENT_ID }}
+          DIDA_CLIENT_SECRET: ${{ secrets.DIDA_CLIENT_SECRET }}
+          DIDA_PROJECT_ID: ${{ secrets.DIDA_PROJECT_ID }}
+          DIDA_PRIORITY_MAP: ${{ secrets.DIDA_PRIORITY_MAP }}
+        run: python core.py sync
+      
+      - name: Commit and push mapping changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add state/mapping.json
+          git diff --cached --quiet || git commit -m "Auto: update mapping.json [skip ci]"
+          git push
+        if: always()
