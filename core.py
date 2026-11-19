@@ -13,50 +13,86 @@ STATE.mkdir(exist_ok=True)
 MAP_FILE = STATE / "mapping.json"
 CAPTURED_FILE = STATE / "captured.json"
 
+# ── 所有非敏感配置直接写死在此，无需 config.json ──
+# 滴答凭据通过环境变量注入（GitHub Secrets），本地开发可用 config.json 或环境变量
+_BUILTIN = {
+    "identity": "user",
+    "base_token": "DxI8bVCCMaehZwsXc1Qc9ptEnXe",
+    "table_id": "tblqjWO6QRSikPZL",
+    "table_name": "待办任务",
+    "base_url": "https://chagee.feishu.cn/base/DxI8bVCCMaehZwsXc1Qc9ptEnXe",
+    "dry_run": False,
+    "port": 8765,
+    "fields": {
+        "title": "任务名称",
+        "content": "任务描述",
+        "url": "超链接",
+        "due": "截止日期",
+        "status": "状态",
+        "disposition": "处置状态",
+        "priority": "优先级",
+        "business": "业务方",
+    },
+    "capture": {
+        "default_status": "待办",
+        "default_disposition": "有效",
+        "default_priority": "中优先级",
+    },
+    "sync": {
+        "filter": {
+            "logic": "and",
+            "conditions": [
+                ["处置状态", "intersects", ["有效"]],
+                ["状态", "disjoint", ["已完成"]],
+            ],
+        },
+        "priority_map": {"高优先级": 5, "中优先级": 3, "低优先级": 1},
+        "project_id": "",       # ← 填你的滴答清单项目 ID
+        "dida_status_field": "",
+    },
+    "dida": {
+        "api_base": "https://api.dida365.com/open/v1",
+        "token": "",
+        "refresh_token": "",
+        "token_obtained_at": "",
+        "client_id": "",        # ← 填你的滴答应用 Client ID
+        "client_secret": "",
+        "redirect_uri": "http://127.0.0.1:38000/callback",
+        "enabled": True,
+    },
+}
+
 
 def cfg():
     import os
-    
-    # 第1步：基础 - 读取config.json作为默认配置
-    if not CFG_FILE.exists():
-        CFG_FILE.write_text((ROOT / "config.example.json").read_text(encoding="utf-8"), encoding="utf-8")
-    config = json.loads(CFG_FILE.read_text(encoding="utf-8"))
-    
-    # 第2步：环境变量覆盖 - 飞书基础信息
-    if os.getenv("FEISHU_BASE_TOKEN"):
-        config["base_token"] = os.getenv("FEISHU_BASE_TOKEN")
-    if os.getenv("FEISHU_TABLE_ID"):
-        config["table_id"] = os.getenv("FEISHU_TABLE_ID")
-    
-    # 第3步：环境变量覆盖 - 滴答OAuth相关
-    if os.getenv("DIDA_TOKEN"):
-        config.setdefault("dida", {})["token"] = os.getenv("DIDA_TOKEN")
-    if os.getenv("DIDA_REFRESH_TOKEN"):
-        config.setdefault("dida", {})["refresh_token"] = os.getenv("DIDA_REFRESH_TOKEN")
-    if os.getenv("DIDA_CLIENT_ID"):
-        config.setdefault("dida", {})["client_id"] = os.getenv("DIDA_CLIENT_ID")
-    if os.getenv("DIDA_CLIENT_SECRET"):
-        config.setdefault("dida", {})["client_secret"] = os.getenv("DIDA_CLIENT_SECRET")
-    if os.getenv("DIDA_PROJECT_ID"):
-        config.setdefault("sync", {})["project_id"] = os.getenv("DIDA_PROJECT_ID")
-    
-    # 第4步：环境变量覆盖 - JSON格式配置
-    if os.getenv("FEISHU_FIELD_MAPPING"):
+
+    config = json.loads(json.dumps(_BUILTIN))  # deep copy
+
+    # 本地 config.json（如存在）覆盖内置默认值
+    if CFG_FILE.exists():
         try:
-            config["fields"] = json.loads(os.getenv("FEISHU_FIELD_MAPPING"))
+            local = json.loads(CFG_FILE.read_text(encoding="utf-8"))
+            for k, v in local.items():
+                if isinstance(v, dict) and isinstance(config.get(k), dict):
+                    config[k].update(v)
+                else:
+                    config[k] = v
         except Exception:
             pass
-    if os.getenv("FEISHU_FILTER_CONDITIONS"):
-        try:
-            config.setdefault("sync", {})["filter"] = json.loads(os.getenv("FEISHU_FILTER_CONDITIONS"))
-        except Exception:
-            pass
-    if os.getenv("DIDA_PRIORITY_MAP"):
-        try:
-            config.setdefault("sync", {})["priority_map"] = json.loads(os.getenv("DIDA_PRIORITY_MAP"))
-        except Exception:
-            pass
-    
+
+    # 环境变量最高优先级——只覆盖敏感凭据
+    env_map = {
+        "DIDA_TOKEN": ("dida", "token"),
+        "DIDA_REFRESH_TOKEN": ("dida", "refresh_token"),
+        "DIDA_CLIENT_ID": ("dida", "client_id"),
+        "DIDA_CLIENT_SECRET": ("dida", "client_secret"),
+        "DIDA_PROJECT_ID": ("sync", "project_id"),
+    }
+    for env_key, (section, field) in env_map.items():
+        val = os.getenv(env_key)
+        if val:
+            config.setdefault(section, {})[field] = val
+
     return config
 
 
