@@ -1,0 +1,50 @@
+{
+  "identity": "user",
+  "base_token": "DxI8bVCCMaehZwsXc1Qc9ptEnXe",
+  "table_id": "tblqjWO6QRSikPZL",
+  "table_name": "待办任务",
+  "base_url": "https://chagee.feishu.cn/base/DxI8bVCCMaehZwsXc1Qc9ptEnXe",
+  "dry_run": true,
+  "port": 8765,
+  "fields": {
+    "title": "任务名称",
+    "content": "任务描述",
+    "url": "超链接",
+    "due": "截止日期",
+    "status": "状态",
+    "disposition": "处置状态",
+    "priority": "优先级",
+    "business": "业务方"
+  },
+  "capture": {
+    "default_status": "待办",
+    "default_disposition": "有效",
+    "default_priority": "中优先级"
+  },
+  "sync": {
+    "filter": {
+      "logic": "and",
+      "conditions": [
+        ["处置状态", "intersects", ["有效"]],
+        ["状态", "disjoint", ["已完成"]]
+      ]
+    },
+    "priority_map": {
+      "高优先级": 5,
+      "中优先级": 3,
+      "低优先级": 1
+    },
+    "project_id": "",
+    "dida_status_field": ""
+  },
+  "dida": {
+    "api_base": "https://api.dida365.com/open/v1",
+    "token": "",
+    "refresh_token": "",
+    "token_obtained_at": "",
+    "client_id": "",
+    "client_secret": "",
+    "redirect_uri": "http://127.0.0.1:38000/callback",
+    "enabled": false
+  }
+}
