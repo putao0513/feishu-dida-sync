@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>快速录入 / 同步控制台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #f7f8fa; color: #1f2328;
+         font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 18px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .pill { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+          padding: 8px 12px; font-size: 12px; color: #6b7280; }
+  .pill b { color: #1f2328; font-weight: 500; margin-left: 6px; }
+  .warn { background: #faeeda; border-color: #efc775; color: #633806; }
+  .ok { background: #e1f5ee; border-color: #9fe1cb; color: #085041; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; }
+  .card h2 { font-size: 14px; font-weight: 500; margin: 0 0 4px; }
+  .hint { font-size: 12px; color: #6b7280; margin: 0 0 14px; }
+  label { display: block; font-size: 12px; color: #6b7280; margin: 10px 0 4px; }
+  input, textarea, select { width: 100%; padding: 8px 10px; border: 1px solid #d9dde3;
+         border-radius: 8px; background: #fff; color: #1f2328; font: inherit; font-size: 13px; }
+  textarea { min-height: 78px; resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button { margin-top: 14px; padding: 9px 14px; border-radius: 8px; border: 1px solid #185fa5;
+           background: #185fa5; color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+  button.ghost { background: #fff; color: #185fa5; border-color: #b5d4f4; margin-left: 8px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .out { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: #f7f8fa;
+         border: 1px solid #e5e7eb; font-size: 12px; white-space: pre-wrap;
+         word-break: break-all; max-height: 260px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eef0f3; }
+  th { color: #6b7280; font-weight: 500; }
+  .tag { padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+  .t-create { background: #e6f1fb; color: #0c447c; }
+  .t-update { background: #faeeda; color: #633806; }
+  .t-skip { background: #f1efe8; color: #5f5e5a; }
+  details { margin-top: 18px; background: #fff; border: 1px solid #e5e7eb;
+            border-radius: 12px; padding: 14px 18px; font-size: 13px; }
+  summary { cursor: pointer; font-weight: 500; }
+  details ol { margin: 12px 0 0; padding-left: 20px; color: #444441; }
+  details li { margin-bottom: 6px; }
+  code { background: #f1efe8; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>快速录入 / 同步控制台</h1>
+  <div class="sub">右键录入 → 中间应用 → 飞书多维表格（主库）→ 滴答清单</div>
+  <div class="bar" id="status"></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>快速录入</h2>
+      <p class="hint">写入「待办任务」表，默认状态=待办、处置状态=有效。</p>
+      <form id="capture-form">
+        <label>任务名称 *</label>
+        <input id="title" required placeholder="选中文字后右键，或在这里手填">
+        <label>任务描述</label>
+        <textarea id="content" placeholder="补充说明"></textarea>
+        <label>来源链接</label>
+        <input id="url" placeholder="https://">
+        <div class="row">
+          <div><label>优先级</label>
+            <select id="priority">
+              <option>中优先级</option><option>高优先级</option><option>低优先级</option>
+            </select></div>
+          <div><label>截止日期</label><input id="due" type="date"></div>
+        </div>
+        <label>业务方</label>
+        <select id="business">
+          <option value="">（不填）</option>
+          <option>合同中心</option><option>蓝凌</option>
+          <option>契约锁</option><option>法大大</option><option>docusign</option>
+        </select>
+        <button type="submit">录入到多维表格</button>
+      </form>
+      <div class="out" id="capture-out">等待操作</div>
+    </div>
+
+    <div class="card">
+      <h2>同步到滴答清单</h2>
+      <p class="hint">口径：处置状态=有效 且 状态≠已完成。用本地映射表去重，已有记录变更走更新。</p>
+      <button id="btn-preview">预览同步计划</button>
+      <button id="btn-run" class="ghost">执行同步</button>
+      <div id="plan"></div>
+      <div class="out" id="sync-out">等待操作</div>
+    </div>
+  </div>
+
+  <details>
+    <summary>启用步骤与真实写入开关</summary>
+    <ol>
+      <li>启动服务：双击仓库根目录的 <code>start.bat</code>（或在该目录执行 <code>python server.py</code>），浏览器打开 <code>http://127.0.0.1:8765</code>。服务只监听本机，未注册开机自启，窗口关闭即停止；可在桌面建快捷方式指向 <code>start.bat</code>。</li>
+      <li>浏览器右键：Chrome/Edge → 扩展程序 → 开发者模式 → 加载已解压的扩展程序 → 选 <code>extensions/chrome</code>。之后选中文字右键「Quick capture to workbench」即可录入。</li>
+      <li>Windows 文件右键：PowerShell 运行 <code>windows/install.ps1</code>（写 HKCU，无需管理员）；卸载用 <code>windows/uninstall.ps1</code>。</li>
+      <li>命令行同步：<code>python sync.py</code> 预览，<code>python sync.py --run</code> 执行；可挂到任务计划做定时同步。</li>
+      <li>开启真实写入（三步缺一不可）：<code>config.json</code> 里 <code>dry_run=false</code>、<code>dida.enabled=true</code>、<code>sync.project_id</code> 填目标清单 ID；token 由 <code>python oauth.py auth</code> 授权后自动写入，无需手填。执行按钮仍会二次确认。</li>
+      <li>当前模式以页面顶部状态条为准：<b>DRY-RUN</b> 只生成计划，<b>LIVE</b> 会真实写入飞书与滴答。<code>dry_run</code> 同时控制右键录入，改完无需重启服务。</li>
+      <li>空标题记录会被同步跳过，不会在滴答里生成 <code>(untitled)</code> 任务。</li>
+    </ol>
+  </details>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return await r.json();
+}
+async function loadStatus() {
+  try {
+    const s = await api('/api/status');
+    const items = [
+      ['模式', s.dry_run ? 'DRY-RUN 不写生产' : 'LIVE 真实写入', s.dry_run ? 'warn' : 'ok'],
+      ['多维表格', s.table, ''],
+      ['飞书 CLI', s.lark_cli ? '可用' : '未找到', ''],
+      ['滴答 Token', s.dida_token ? '已配置' : '未配置', ''],
+      ['目标清单', s.project_id, ''],
+      ['已映射', s.mapping_count + ' 条', '']
+    ];
+    $('#status').innerHTML = items.map(([k, v, c]) =>
+      '<div class="pill ' + c + '">' + k + '<b>' + v + '</b></div>').join('');
+  } catch (e) { $('#status').textContent = '服务状态读取失败：' + e.message; }
+}
+$('#capture-form').onsubmit = async e => {
+  e.preventDefault();
+  const due = $('#due').value ? $('#due').value + 'T00:00:00+08:00' : '';
+  const body = {
+    title: $('#title').value, content: $('#content').value, url: $('#url').value,
+    priority: $('#priority').value, due: due, business: $('#business').value
+  };
+  $('#capture-out').textContent = '提交中...';
+  try {
+    const r = await api('/api/capture', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    $('#capture-out').textContent = JSON.stringify(r, null, 2);
+  } catch (err) { $('#capture-out').textContent = '失败：' + err.message; }
+};
+function renderPlan(r) {
+  const active = r.plan.filter(x => x.action !== 'skip');
+  $('#plan').innerHTML = '<table><tr><th>动作</th><th>任务</th></tr>' +
+    (active.length ? active.map(x => '<tr><td><span class="tag t-' + x.action + '">' +
+      x.action + '</span></td><td>' + (x.title || '') + '</td></tr>').join('') :
+      '<tr><td colspan="2">无待同步记录</td></tr>') + '</table>';
+  return r;
+}
+$('#btn-preview').onclick = async () => {
+  $('#sync-out').textContent = '读取多维表格中...';
+  try { const r = await api('/api/sync/preview'); renderPlan(r);
+    $('#sync-out').textContent = 'DRY-RUN｜扫描 ' + r.scanned + ' 条｜空标题忽略 ' +
+      (r.blank_skipped || 0) + ' 条｜新增 ' +
+      r.counts.create + ' / 更新 ' + r.counts.update + ' / 跳过 ' + r.counts.skip +
+      (r.blockers.length ? '\n待补齐：' + r.blockers.join('、') : '');
+  } catch (e) { $('#sync-out').textContent = '失败：' + e.message; }
+};
+$('#btn-run').onclick = async () => {
+  if (!confirm('确认执行同步？当前为 DRY-RUN 时只会生成计划，不会写入生产数据。')) return;
+  $('#sync-out').textContent = '执行中...';
+  try { const r = await api('/api/sync/run', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm: true})});
+    renderPlan(r);
+    $('#sync-out').textContent = (r.dry_run ? 'DRY-RUN，未写入' : 'LIVE，已写入') +
+      '｜执行 ' + r.executed.length + ' 条｜错误 ' + r.errors.length + ' 条' +
+      (r.blockers.length ? '\n待补齐：' + r.blockers.join('、') : '');
+  } catch (e) { $('#sync-out').textContent = '失败：' + e.message; }
+};
+loadStatus();
+</script>
+</body>
+</html>
