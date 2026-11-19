@@ -1,0 +1,1 @@
+# 运行时状态目录：mapping.json / captured.json / 临时 NDJSON 均写入此处，且被 .gitignore 忽略。
