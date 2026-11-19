@@ -80,17 +80,20 @@ def cfg():
         except Exception:
             pass
 
-    # 环境变量最高优先级——只覆盖敏感凭据
+    # 环境变量最高优先级——只覆盖敏感凭据（strip 清除尾部换行/空格）
     env_map = {
         "DIDA_TOKEN": ("dida", "token"),
         "DIDA_REFRESH_TOKEN": ("dida", "refresh_token"),
         "DIDA_CLIENT_ID": ("dida", "client_id"),
         "DIDA_CLIENT_SECRET": ("dida", "client_secret"),
         "DIDA_PROJECT_ID": ("sync", "project_id"),
+        "FEISHU_APP_ID": ("feishu", "app_id"),
+        "FEISHU_APP_SECRET": ("feishu", "app_secret"),
     }
     for env_key, (section, field) in env_map.items():
         val = os.getenv(env_key)
         if val:
+            val = val.strip()
             config.setdefault(section, {})[field] = val
 
     return config
@@ -119,8 +122,8 @@ def _feishu_token():
     now = time.time()
     if _feishu_token_cache["token"] and _feishu_token_cache["expires"] > now + 60:
         return _feishu_token_cache["token"]
-    app_id = os.getenv("FEISHU_APP_ID", "")
-    app_secret = os.getenv("FEISHU_APP_SECRET", "")
+    app_id = (os.getenv("FEISHU_APP_ID", "") or "").strip()
+    app_secret = (os.getenv("FEISHU_APP_SECRET", "") or "").strip()
     if not app_id or not app_secret:
         raise RuntimeError("FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量未设置")
     req = urllib.request.Request(
