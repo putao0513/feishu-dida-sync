@@ -1,100 +1,164 @@
 ---
-title: quick-capture 框架说明
+title: feishu-dida-sync 项目说明
 status: verified
-updated: 2026-11-18
-source: 本仓库实现与实测
-tags: [架构, 框架, 启动, 开关]
+updated: 2026-11-19
+source: 本仓库实现与 GitHub Actions 实测
+tags: [架构, 同步, 飞书, 滴答清单, GitHub-Actions]
 ---
 
-# quick-capture — 飞书多维表格 ↔ 滴答清单 + 右键快速录入
+# feishu-dida-sync — 飞书多维表格 → 滴答清单 自动同步
 
-## 定位
+> **一句话**：飞书多维表格「待办任务」是唯一事实源，GitHub Actions 每 2 小时自动把有效任务单向同步到滴答清单 🍵CHAGEE 清单作为执行视图。
 
-飞书多维表格「待办任务」是**唯一事实源**；本机枢纽把它**单向**同步到滴答清单 🍵CHAGEE 作为执行视图；浏览器右键把网页 / 选中文字写回主库。不是一次性导出备份。
+## 项目定位
 
-## 架构（三层）
+| 维度 | 说明 |
+|------|------|
+| **数据流** | 飞书多维表格（主库）→ 滴答清单（执行视图），**单向同步** |
+| **运行方式** | GitHub Actions 定时云端执行（`cron: 0 */2 * * *` UTC） |
+| **仓库地址** | `https://github.com/putao0513/feishu-dida-sync` |
+| **幂等机制** | `state/mapping.json` 存 `record_id ↔ taskId + 字段 hash` |
 
-| 层 | 组件 | 说明 |
-|---|---|---|
-| 采集层 | `scriptcat/*.user.js`（右键菜单 + `@crontab */15 9-18 * * 1-5`）、`extensions/chrome/`、`windows/` | 只做采集与触发，不持有凭据 |
-| 枢纽层 | `server.py` + `core.py` + `sync.py` + `oauth.py`，`127.0.0.1:8765` | 写飞书（经 `lark-cli`）、同步滴答、幂等映射、托管用户脚本、控制台 |
-| 数据层 | 飞书多维表格（主库）／滴答清单（执行视图） | 单向：表格 → 滴答 |
+## 架构
 
 ```
-右键/定时 → HTTP 127.0.0.1:8765 → /api/capture → 飞书主库
-                                 → /api/sync/*  → 滴答清单
-                        state/mapping.json（不入库）负责幂等
+飞书多维表格 ──(Feishu Base API)──→ core.py (sync_once) ──(滴答 Open API)──→ 滴答清单 🍵CHAGEE
+                                        ↑
+                                  GitHub Actions
+                                  每 2 小时定时触发
 ```
 
-枢纽不可省略：`lark-cli` 是本机 CLI 且依赖已授权身份，浏览器沙盒无法调用；滴答 token 不进浏览器。
+### 核心组件
 
-## 目录层级
+| 文件 | 职责 | 关键点 |
+|------|------|--------|
+| `core.py` | 核心引擎：配置、飞书 API、滴答 API、同步计划、幂等 | 所有非敏感配置已硬编码在 `_BUILTIN` |
+| `sync.py` | CLI 入口：`python sync.py [--run --json --limit N]` | `--run` 真实写入，不加只预览 |
+| `oauth.py` | 滴答 OAuth2 授权、token 刷新、列清单 | `python oauth.py auth` / `status` |
+| `.github/workflows/sync.yml` | GitHub Actions 工作流 | 每 2 小时 cron + 手动触发 |
 
-| 路径 | 职责 | 入库 |
-|---|---|---|
-| `core.py` `sync.py` `server.py` `oauth.py` | 配置、飞书/滴答请求、同步计划、HTTP 服务、OAuth | 是 |
-| `index.html` | 控制台（录入 + 预览/执行同步 + 状态条） | 是 |
-| `start.bat` | 手工启动服务（**无开机自启**） | 是 |
-| `scriptcat/` | 浏览器引用层，两个 `.user.js` | 是 |
-| `extensions/chrome/` `windows/` | 备选右键入口（MV3 扩展 / 注册表脚本） | 是 |
-| `config.example.json` | 入库模板（空凭据） | 是 |
-| `config.json` | 实际配置与 token | **否** |
-| `state/` | `mapping.json`、`captured.json`、临时 NDJSON、日志 | **否**（仅 `.gitkeep`） |
+### 已废弃（仓库中仍保留，不再使用）
 
-## 启动与停止
+| 文件 | 原用途 | 废弃原因 |
+|------|--------|---------|
+| `server.py` | 本地 HTTP 服务 (`127.0.0.1:8765`) | 被 GitHub Actions 取代 |
+| `index.html` | 本地控制台页面 | 同上 |
+| `scriptcat/` | 浏览器脚本（Tampermonkey） | 网站禁用右键，方案失效 |
 
-- 双击 `start.bat`（或在本目录执行 `python server.py`），只监听 `127.0.0.1:8765`，窗口可见日志，Ctrl+C / 关窗口即停。
-- 用户 2026-11-18 明确**不注册开机自启**；桌面快捷方式：右键 `start.bat` → 发送到 → 桌面快捷方式。
-- 端口已占用时先关旧窗口。改 `.py` / `server.py` 后需重启；只改 `index.html` / `.user.js` 无需重启（每次请求读文件）。
-- `start.bat` 用 `%USERPROFILE%` 规避中文路径，并自动把 WorkBuddy 的 node bin 加进 PATH 以便找到 `lark-cli`。
+## 数据流详情
 
-## 配置开关（`config.json`，`core.cfg()` 每次读取，改完无需重启）
+### 飞书 → 滴答同步逻辑
 
-| 键 | 作用 | 当前 |
-|---|---|---|
-| `dry_run` | 全局开关，`true` 时录入与同步都不写生产 | `false`（LIVE） |
-| `dida.enabled` | 同步开关 | `true` |
-| `sync.project_id` | 目标清单 🍵CHAGEE | 已设置 |
-| `dida.token` | OAuth 授权写入，**无 refresh_token** | 有效；过期重跑 `python oauth.py auth` |
-| `sync.filter` | 口径：处置状态=有效 AND 状态≠已完成 | 已设置 |
+1. **读取飞书记录**：调用飞书 Base API `records/search`，按筛选条件获取
+   - 筛选条件：`处置状态=有效 AND 状态≠已完成`
+2. **构建同步计划**（幂等）：
+   - `hash(record_id + 字段值)` 与 `state/mapping.json` 比对
+   - hash 变 → `update`；未变 → `skip`；无映射 → `create`
+   - **空标题记录直接跳过**，返回 `blank_skipped`
+3. **执行同步**：
+   - 创建：`POST /task`
+   - 更新：`POST /task/{taskId}`（body 必须带 `id`）
+4. **保存映射**：`state/mapping.json` 自动 commit + push 回仓库
 
-文件不存在时由 `core.cfg()` 从模板自动 bootstrap。
+### 字段映射（飞书 → 滴答）
 
-## HTTP 端点
+| 飞书字段 | 滴答字段 | 说明 |
+|----------|----------|------|
+| 任务名称 | title | 必填，空则跳过 |
+| 任务描述 | content | 尾部追加 `[feishu] <url> record_id=xxx` |
+| 超链接 | content 中 | 附加到描述 |
+| 截止日期 | dueDate | `normalize_due()` 去毫秒，转 UTC |
+| 优先级 | priority | 高=5, 中=3, 低=1 |
+| 状态 | （仅用于筛选） | 不写入滴答 |
+| 处置状态 | （仅用于筛选） | 不写入滴答 |
+| 业务方 | （仅用于筛选） | 不写入滴答 |
 
-| 方法 | 路径 | 作用 |
-|---|---|---|
-| GET | `/`、`/index.html` | 控制台 |
-| GET | `/api/status` | 配置摘要、token/CLI/映射状态 |
-| POST | `/api/capture` | 写飞书主库（受 `dry_run` 控制，带标题去重） |
-| GET | `/api/sync/preview` | 只读生成同步计划 |
-| POST | `/api/sync/run` | 执行同步，需 `{"confirm":true}` |
-| GET | `/scriptcat/`、`/scriptcat/<name>.user.js` | 脚本索引与静态托管（白名单防穿越） |
+## 配置
 
-CORS：Origin 白名单回显（`127.0.0.1` / `localhost` / `chrome-extension://` / `moz-extension://`），无 Origin 与 `null` 放行以兼容 ScriptCat 与本地进程，其它来源 403。
+### GitHub Secrets（7 个，必须配置）
 
-## 同步逻辑
+在 [仓库 Settings → Secrets → Actions](https://github.com/putao0513/feishu-dida-sync/settings/secrets/actions) 配置：
 
-- 幂等：`state/mapping.json` 存 `record_id ↔ taskId + 字段 hash`；hash 变 → update，未变 → skip，无映射 → create。
-- **空标题记录直接跳过**，返回 `blank_skipped`，不生成 `(untitled)` 任务。
-- 创建 `POST /task`；更新 `POST /task/{taskId}`（**body 必须带 `id`**）；国内版删除是 `DELETE /open/v1/project/{pid}/task/{tid}`。
-- `dueDate` 经 `normalize_due()` 去毫秒；滴答转 UTC 存储。请求超时 60s（实测偶发 30.6s 慢响应）。
-- 滴答任务描述尾部追加 `[feishu] <base_url>?table=... record_id=...`，便于反查。
+| Secret 名称 | 用途 | 获取方式 |
+|------------|------|---------|
+| `FEISHU_APP_ID` | 飞书应用 ID | [open.feishu.cn](https://open.feishu.cn/app) 创建企业自建应用 |
+| `FEISHU_APP_SECRET` | 飞书应用密钥 | 同上 |
+| `DIDA_CLIENT_ID` | 滴答应用 Client ID | [developer.dida365.com](https://developer.dida365.com/manage) |
+| `DIDA_CLIENT_SECRET` | 滴答应用 Client Secret | 同上 |
+| `DIDA_TOKEN` | 滴答 Access Token | 运行 `python oauth.py auth` 获取 |
+| `DIDA_REFRESH_TOKEN` | 滴答 Refresh Token | 同上（滴答不返回，可留空） |
+| `DIDA_PROJECT_ID` | 目标清单 ID | 运行 `python oauth.py projects` 查看 |
 
-## 验证命令
+### 内置配置（`core.py` 的 `_BUILTIN`，无需配置）
+
+飞书 Base Token、Table ID、字段映射、筛选条件、优先级映射、滴答 API 地址等非敏感配置已硬编码。
+
+## 本地开发
 
 ```bash
-python -m py_compile core.py sync.py server.py oauth.py
-node --check scriptcat/*.user.js extensions/chrome/background.js
-python sync.py                 # 预览：executed=0
-python sync.py --run           # LIVE 幂等复跑：executed=0
-python oauth.py status         # 凭据状态（不打印明文）
+# 1. 语法检查
+python -m py_compile core.py sync.py oauth.py
+
+# 2. 预览同步计划（不写入）
+python sync.py
+
+# 3. 执行同步（真实写入滴答）
+python sync.py --run
+
+# 4. 查看滴答凭据状态
+python oauth.py status
+
+# 5. 重新授权滴答（token 过期时）
+python oauth.py auth
+
+# 6. 查看滴答清单列表
+python oauth.py projects
 ```
 
-## 已知限制（2026-11-18）
+## 本地 config.json（开发用）
 
-1. 两个 ScriptCat 脚本仍 `candidate`：真实浏览器右键、`@crontab` 定时触发、`dry_run=false` 下右键真实写飞书，均未端到端实测。
-2. 单向同步：表格标完成 / 删记录 → 滴答任务残留；滴答勾完成不回写表格。
-3. token 无 `refresh_token`，过期需手动重授权；scheduler 对重复错误只提醒一次，可能静默停摆。
-4. `state/mapping.json` 无备份，误删会重复建任务。
-5. `config.example.json` 与两个 `@namespace` 含真实 `base_token`；仓库当前无 remote，push 前须脱敏。
+本地开发可用 `config.json` 覆盖 `_BUILTIN`，优先级：环境变量 > config.json > _BUILTIN。
+
+**`config.json` 不入库**（`.gitignore` 排除），生产环境全靠 GitHub Secrets。
+
+## 排障速查
+
+| 症状 | 原因 | 解决 |
+|------|------|------|
+| `FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量未设置` | GitHub Secrets 未配 | 配置 2 个飞书凭据 |
+| `飞书认证失败` | App ID/Secret 错误或应用未发布 | 检查飞书后台，发布应用版本 |
+| `飞书 API xxx: xxx` | 权限不足或表格未授权 | 飞书应用加 `bitable:app` 权限 + 添加为表格协作者 |
+| `dida.token 已过期` | 滴答 token 失效 | 本地跑 `python oauth.py auth`，更新 Secret |
+| `Invalid header value` | token 含换行/空格 | 确认 Secret 值无尾部空白（代码已加 `.strip()`） |
+| `403 Forbidden`（滴答 OAuth） | WAF 拦截 `127.0.0.1` | redirect_uri 必须用 `http://localhost:38000/callback` |
+| `invalid_client`（滴答 OAuth） | 端点用错 | 必须用 `dida365.com`（非 `ticktick.com`） |
+| `Permission denied to github-actions[bot]` | 工作流无写权限 | 确认 workflow 有 `permissions: contents: write` |
+
+## 关键技术细节
+
+### 滴答 OAuth 注意事项
+- 授权端点：`https://dida365.com/oauth/authorize`（国内版）
+- Redirect URL：**必须用 `localhost`**，WAF 拦截 `127.0.0.1`
+- 不返回 `refresh_token`，token 过期需手动重新授权
+- 开发者后台需登记 Redirect URL 与 config 逐字符一致
+
+### 飞书 API 字段格式
+- 文本字段返回 `[{type:"text", text:"内容"}]` 列表 → `_normalize_field()` 归一化为字符串
+- 多选字段返回 `["选项1", "选项2"]` 数组（保留原格式）
+- URL 字段返回 `{text:"显示文字", link:"https://..."}` → 归一化为 text
+
+### 幂等同步
+- `state/mapping.json` 由 GitHub Actions 自动 commit 回仓库（`[skip ci]` 防循环）
+- hash 算法：`md5(title + content + due + priority + status + disposition)`
+- 删除/完成的飞书记录**不会**从滴答删除（单向同步的已知限制）
+
+## 验证状态
+
+| 项目 | 状态 | 证据 |
+|------|------|------|
+| GitHub Actions 定时同步 | ✅ verified | 2026-11-19 手动触发成功，12 条同步 0 错误 |
+| 飞书 API 直连读取 | ✅ verified | 12 条记录扫描正常 |
+| 滴答 API 创建/更新任务 | ✅ verified | 12 条全部 update 成功 |
+| mapping.json 自动提交 | ✅ verified | `[skip ci]` commit 已推送 |
+| OAuth 授权流程 | ✅ verified | 真实授权页跑通（localhost redirect） |
+| 定时 cron 触发 | ⏳ 待验证 | 首次定时运行将在下一个整点 |
