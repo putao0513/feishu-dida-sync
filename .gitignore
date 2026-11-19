@@ -1,0 +1,27 @@
+# 运行时状态：幂等映射、去重指纹、临时 NDJSON / payload。禁止入库，git pull 不得覆盖。
+state/*
+!state/.gitkeep
+
+# 本地实际配置：含飞书 app_token、滴答 token 等凭据。禁止入库。
+# 仓库只保留 config.example.json 模板，clone 后由 core.cfg() 自动生成 config.json。
+config.json
+config.local.json
+
+# 数据快照与导出物：备份包、CSV、NDJSON 属于数据，不属于代码。
+backup/
+*.zip
+*.csv
+*.ndjson
+
+# Python 运行时产物
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 日志、编辑器与系统文件
+*.log
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
