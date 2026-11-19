@@ -191,6 +191,17 @@ def lark(args, payload=None):
             tmp.unlink()
 
 
+def _normalize_field(v):
+    """飞书 API 文本字段返回 [{type,text}] 列表，需归一化为字符串"""
+    if isinstance(v, list):
+        if v and isinstance(v[0], dict):
+            return "".join(seg.get("text", "") for seg in v)
+        return v  # 多选字段本身就是字符串列表
+    if isinstance(v, dict):
+        return v.get("text", "") or v.get("link", "")
+    return v
+
+
 def feishu_list():
     c = cfg()
     app_token, table_id = c["base_token"], c["table_id"]
@@ -203,7 +214,8 @@ def feishu_list():
         data = _feishu_api("POST", path, {"filter": flt, "automatic_fields": False})
         for item in data.get("items", []):
             row = {"record_id": item["record_id"]}
-            row.update(item.get("fields", {}))
+            for k, v in item.get("fields", {}).items():
+                row[k] = _normalize_field(v)
             records.append(row)
         if not data.get("has_more") or not data.get("page_token"):
             break
