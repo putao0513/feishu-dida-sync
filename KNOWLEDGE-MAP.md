@@ -1,7 +1,7 @@
 ---
 title: feishu-dida-sync 知识索引
-status: verified
-updated: 2026-11-19
+status: candidate
+updated: 2026-11-26
 source: 本仓库实现与 GitHub Actions 实测记录
 tags: [索引, 知识图谱, 跨agent共享]
 ---
@@ -31,9 +31,9 @@ tags: [索引, 知识图谱, 跨agent共享]
 |---|---|---|---|
 | `AGENTS.md` | 跨 agent 三同步铁律与验证清单 | verified | 用户 2026-11-18 要求并落地 |
 | `CLAUDE.md` | Claude Code 入口，指向 AGENTS.md | verified | 新建 |
-| `README.md` | 项目说明：架构/配置/排障/验证 | verified | 2026-11-19 全面重写，对齐 GitHub Actions 架构 |
-| `KNOWLEDGE-MAP.md` | 本索引 | verified | 2026-11-19 更新 |
-| `core.py` | 核心引擎：飞书 API、滴答 API、同步计划、幂等 | verified | GitHub Actions 云端实测 12 条同步 0 错误 |
+| `README.md` | 项目说明：架构/配置/排障/验证 | candidate | 2026-11-26 增补状态同步与源记录清理，待实测 |
+| `KNOWLEDGE-MAP.md` | 本索引 | candidate | 2026-11-26 更新 |
+| `core.py` | 核心引擎：飞书 API、滴答 API、同步计划、幂等 | candidate | 2026-11-26 完成状态与删除清理逻辑待实测 |
 | `sync.py` | CLI 入口：`--run --json --limit` | verified | `python sync.py --run` 实测 |
 | `oauth.py` | 滴答 OAuth2 授权、刷新、列清单 | verified | 真实授权页跑通（localhost redirect） |
 | `.github/workflows/sync.yml` | GitHub Actions 工作流 | verified | 手动触发 + 自动 commit 实测 |
@@ -67,6 +67,7 @@ tags: [索引, 知识图谱, 跨agent共享]
 | 11-19 | 滴答 OAuth `invalid_client`（ticktick.com） | 应用注册在 dida365.com，端点必须用 `dida365.com` | 真实授权页 | verified |
 | 11-19 | `Permission denied to github-actions[bot]` | workflow 加 `permissions: contents: write` | Actions 日志 | verified |
 | 11-19 | GitHub Actions 首次同步 | 12 条飞书记录 → 12 条滴答更新，0 错误，mapping 自动 commit | Actions 日志 | verified |
+| 11-26 | 完成状态与源记录删除 | 有效项状态映射到滴答；无效或源记录缺失时删除映射任务 | 代码实现；需 Actions 实测 | candidate |
 
 ## 变更记录（append-only）
 
@@ -76,3 +77,4 @@ tags: [索引, 知识图谱, 跨agent共享]
 | 11-18 | `d87b826` | 更新补 `id`、空标题过滤、CORS 白名单、超时 60s、控制台文案 | 补建 `README.md` | 补建本文件 |
 | 11-18 | 一次 | 新增 `AGENTS.md`、`CLAUDE.md` 落地三同步铁律 | `README.md` 同步 | 本文件同步 |
 | 11-19 | 多次 | **架构迁移**：lark-cli→飞书 HTTP API、本地服务→GitHub Actions、OAuth 403/invalid_client 修复、token strip | **全面重写** | **本次更新** |
+| 2026-11-26 | 本次 | 完成状态同步；删除飞书中已删除或无效记录对应的滴答任务 | `core.py`、`README.md` | 本次更新 |

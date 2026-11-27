@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -39,13 +40,6 @@ _BUILTIN = {
         "default_priority": "中优先级",
     },
     "sync": {
-        "filter": {
-            "logic": "and",
-            "conditions": [
-                ["处置状态", "intersects", ["有效"]],
-                ["状态", "disjoint", ["已完成"]],
-            ],
-        },
         "priority_map": {"高优先级": 5, "中优先级": 3, "低优先级": 1},
         "project_id": "",       # ← 填你的滴答清单项目 ID
         "dida_status_field": "",
@@ -156,17 +150,6 @@ def _feishu_api(method, path, body=None):
     return resp.get("data", {})
 
 
-def _convert_filter(f):
-    op_map = {"intersects": "is", "disjoint": "isNot"}
-    return {
-        "conjunction": f.get("logic", "and"),
-        "conditions": [
-            {"field_name": c[0], "operator": op_map.get(c[1], c[1]), "value": c[2]}
-            for c in f.get("conditions", [])
-        ],
-    }
-
-
 def lark(args, payload=None):
     c = cfg()
     exe = shutil.which("lark-cli")
@@ -208,13 +191,13 @@ def _normalize_field(v):
 def feishu_list():
     c = cfg()
     app_token, table_id = c["base_token"], c["table_id"]
-    flt = _convert_filter(c["sync"]["filter"])
     records, page_token = [], ""
     while True:
         path = "/bitable/v1/apps/%s/tables/%s/records/search?page_size=500" % (app_token, table_id)
         if page_token:
             path += "&page_token=" + page_token
-        data = _feishu_api("POST", path, {"filter": flt, "automatic_fields": False})
+        # 读取全部记录，后续才能同步完成状态并识别无效/已删除的源记录。
+        data = _feishu_api("POST", path, {"automatic_fields": False})
         for item in data.get("items", []):
             row = {"record_id": item["record_id"]}
             for k, v in item.get("fields", {}).items():
@@ -290,6 +273,12 @@ def normalize_due(v):
     return re.sub(r"\.\d{3}(?=[+-]\d{2}:?\d{2}|Z$)", "", str(v).strip())
 
 
+def _as_values(value):
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
 def build_task(row, task_id=None):
     c = cfg()
     f, s = c["fields"], c["sync"]
@@ -304,6 +293,7 @@ def build_task(row, task_id=None):
         "title": title,
         "content": desc,
         "priority": s["priority_map"].get(pri[0] if pri else "", 0),
+        "status": 2 if "已完成" in _as_values(row.get(f["status"])) else 0,
         "projectId": s["project_id"],
     }
     if row.get(f["due"]):
@@ -351,8 +341,13 @@ def sync_once(run=False, limit=0):
     mapping = _read(MAP_FILE, {})
     plan = []
     blank = []
+    active_ids = set()
     for row in rows:
         rid = row["record_id"]
+        # 有效记录保留在滴答，完成状态另行同步。
+        if "有效" not in _as_values(row.get(c["fields"]["disposition"])):
+            continue
+        active_ids.add(rid)
         if not (row.get(c["fields"]["title"]) or "").strip():
             blank.append(rid)
             continue
@@ -367,6 +362,12 @@ def sync_once(run=False, limit=0):
             "hash": h,
             "task": build_task(row, (m or {}).get("taskId")),
         })
+    # 飞书记录物理删除或处置为无效时，删除映射的滴答任务。
+    for rid, mapped in mapping.items():
+        if rid not in active_ids and mapped.get("taskId"):
+            plan.append({"record_id": rid, "title": "(deleted or inactive)",
+                         "action": "delete", "task_id": mapped["taskId"],
+                         "hash": None, "task": None})
     executed, errors = [], []
     exec_plan = plan[:limit] if limit and limit > 0 else plan
     if not dry:
@@ -374,12 +375,30 @@ def sync_once(run=False, limit=0):
             if item["action"] == "skip":
                 continue
             try:
+                if item["action"] == "delete":
+                    tid = item["task_id"]
+                    try:
+                        dida_request("DELETE", "/project/%s/task/%s" %
+                                     (c["sync"]["project_id"], tid))
+                    except urllib.error.HTTPError as e:
+                        if e.code != 404:
+                            raise
+                    mapping.pop(item["record_id"], None)
+                    executed.append({"record_id": item["record_id"], "taskId": tid,
+                                     "action": "delete"})
+                    continue
+                task_payload = dict(item["task"])
+                desired_status = task_payload.pop("status", 0)
                 if item["action"] == "create":
-                    res = dida_request("POST", "/task", item["task"])
+                    res = dida_request("POST", "/task", task_payload)
                     tid = res.get("id")
                 else:
                     tid = item["task_id"]
-                    dida_request("POST", "/task/" + tid, item["task"])
+                    task_payload["status"] = 0
+                    dida_request("POST", "/task/" + tid, task_payload)
+                if desired_status == 2:
+                    dida_request("POST", "/project/%s/task/%s/complete" %
+                                 (c["sync"]["project_id"], tid))
                 mapping[item["record_id"]] = {
                     "taskId": tid, "hash": item["hash"],
                     "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -394,7 +413,7 @@ def sync_once(run=False, limit=0):
         "scanned": len(rows),
         "blank_skipped": len(blank),
         "blank_ids": blank[:20],
-        "counts": {a: sum(1 for x in plan if x["action"] == a) for a in ("create", "update", "skip")},
+        "counts": {a: sum(1 for x in plan if x["action"] == a) for a in ("create", "update", "delete", "skip")},
         "blockers": [b for b, ok in (("dida.token/enabled", token_ok),
                                      ("sync.project_id", project_ok),
                                      ("config.dry_run=false", not c["dry_run"])) if not ok],

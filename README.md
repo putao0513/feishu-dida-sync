@@ -1,7 +1,7 @@
 ---
 title: feishu-dida-sync 项目说明
-status: verified
-updated: 2026-11-19
+status: candidate
+updated: 2026-11-26
 source: 本仓库实现与 GitHub Actions 实测
 tags: [架构, 同步, 飞书, 滴答清单, GitHub-Actions]
 ---
@@ -50,14 +50,16 @@ tags: [架构, 同步, 飞书, 滴答清单, GitHub-Actions]
 ### 飞书 → 滴答同步逻辑
 
 1. **读取飞书记录**：调用飞书 Base API `records/search`，按筛选条件获取
-   - 筛选条件：`处置状态=有效 AND 状态≠已完成`
+   - 读取全部记录后处理：有效记录（含已完成）同步；无效或已删除的映射任务删除。
 2. **构建同步计划**（幂等）：
    - `hash(record_id + 字段值)` 与 `state/mapping.json` 比对
    - hash 变 → `update`；未变 → `skip`；无映射 → `create`
    - **空标题记录直接跳过**，返回 `blank_skipped`
 3. **执行同步**：
    - 创建：`POST /task`
-   - 更新：`POST /task/{taskId}`（body 必须带 `id`）
+   - 更新：`POST /task/{taskId}`（body 必须带 `id`）；恢复待办写入 `status=0`
+   - 完成：`POST /project/{projectId}/task/{taskId}/complete`
+   - 清理：源记录被删除或无效时，调用 `DELETE /project/{projectId}/task/{taskId}`
 4. **保存映射**：`state/mapping.json` 自动 commit + push 回仓库
 
 ### 字段映射（飞书 → 滴答）
@@ -69,8 +71,8 @@ tags: [架构, 同步, 飞书, 滴答清单, GitHub-Actions]
 | 超链接 | content 中 | 附加到描述 |
 | 截止日期 | dueDate | `normalize_due()` 去毫秒，转 UTC |
 | 优先级 | priority | 高=5, 中=3, 低=1 |
-| 状态 | （仅用于筛选） | 不写入滴答 |
-| 处置状态 | （仅用于筛选） | 不写入滴答 |
+| 状态 | 滴答任务状态 | 待办=0，已完成调用完成端点 |
+| 处置状态 | 同步范围控制 | 有效记录同步；无效或源记录已删除时删除滴答任务 |
 | 业务方 | （仅用于筛选） | 不写入滴答 |
 
 ## 配置
@@ -150,13 +152,16 @@ python oauth.py projects
 ### 幂等同步
 - `state/mapping.json` 由 GitHub Actions 自动 commit 回仓库（`[skip ci]` 防循环）
 - hash 算法：`md5(title + content + due + priority + status + disposition)`
-- 删除/完成的飞书记录**不会**从滴答删除（单向同步的已知限制）
+- 飞书“已完成”通过滴答完成端点同步；恢复待办时写入 `status=0`
+- 飞书记录被物理删除或处置状态改为无效时，删除其映射的滴答任务；清理基于完整分页读取
 
 ## 验证状态
 
 | 项目 | 状态 | 证据 |
 |------|------|------|
 | GitHub Actions 定时同步 | ✅ verified | 2026-11-19 手动触发成功，12 条同步 0 错误 |
+| 飞书完成状态同步 | ⏳ candidate | 已实现状态映射，待真实任务验证 |
+| 源记录失效/删除清理 | ⏳ candidate | 已实现滴答删除计划，待完整扫描与真实删除验证 |
 | 飞书 API 直连读取 | ✅ verified | 12 条记录扫描正常 |
 | 滴答 API 创建/更新任务 | ✅ verified | 12 条全部 update 成功 |
 | mapping.json 自动提交 | ✅ verified | `[skip ci]` commit 已推送 |

@@ -3,7 +3,13 @@ name: Sync Feishu to Dida
 on:
   schedule:
     - cron: '0 */2 * * *'  # UTC时区，每2小时执行一次
-  workflow_dispatch:        # 支持手动触发
+  workflow_dispatch:        # 手动触发默认预演；execute=true 才真实写入
+    inputs:
+      execute:
+        description: "真实执行同步（会更新/删除滴答任务）"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write            # 允许自动提交 mapping.json
@@ -30,7 +36,12 @@ jobs:
           DIDA_TOKEN: ${{ secrets.DIDA_TOKEN }}
           DIDA_REFRESH_TOKEN: ${{ secrets.DIDA_REFRESH_TOKEN }}
           DIDA_PROJECT_ID: ${{ secrets.DIDA_PROJECT_ID }}
-        run: python sync.py --run --json
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.execute }}" != "true" ]]; then
+            python sync.py --json
+          else
+            python sync.py --run --json
+          fi
 
       - name: Commit mapping changes
         run: |
